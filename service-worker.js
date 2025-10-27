@@ -7,6 +7,7 @@ const ASSETS_TO_CACHE = [
   "/manifest.webmanifest",
   "/icon-192.png",
   "/icon-512.png",
+  "/icon.png",
 ];
 
 const updateCache = (request, response) => {
