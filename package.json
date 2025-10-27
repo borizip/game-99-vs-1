@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "http-server . -p 3000"
+    "dev": "http-server . -p 3000",
+    "format": "prettier --write ."
   },
   "devDependencies": {
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "prettier": "^3.6.2"
   }
 }
