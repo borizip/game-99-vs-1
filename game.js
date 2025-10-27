@@ -7,39 +7,90 @@ const gameOverTitle = document.getElementById('game-over-title');
 const gameOverDetail = document.getElementById('game-over-detail');
 const restartButton = document.getElementById('restart');
 
-const CONFIG = {
-  stageRadius: canvas.width * 0.42,
+let logicalCanvasSize = canvas.width;
+const BASE_CANVAS_SIZE = logicalCanvasSize;
+
+const DIMENSIONAL_VALUES = {
   playerSpeed: 3,
   cpuSpeed: 1,
   playerRadius: 14,
   cpuRadius: 10,
-  cpuCount: 99,
-  roundSeconds: 180,
+  peelRadius: 12,
+  dangerTriggerOffset: 90,
+  springRestOffset: 40,
+  separationPadding: 6,
+  edgeRepulsionMargin: 120,
+  edgeVelocityClampBand: 30,
 };
 
-CONFIG.safeRadius = CONFIG.stageRadius * 0.32;
-CONFIG.outerBoundaryRatio = 0.9;
-CONFIG.peelRadius = 12;
-CONFIG.peelDropInterval = 6;
-CONFIG.peelDropJitter = 3;
-CONFIG.initialPeelDelay = 4;
-CONFIG.playerStunDuration = 3;
-CONFIG.dangerTriggerDistance = CONFIG.safeRadius + 90;
-CONFIG.springRestDistance = CONFIG.safeRadius + 40;
-CONFIG.springStrength = 0.08;
-CONFIG.springDamping = 0.12;
-CONFIG.separationPadding = 6;
-CONFIG.separationStrength = 0.15;
-CONFIG.edgeRepulsionMargin = 120;
-CONFIG.edgeRepulsionStrength = 0.75;
-CONFIG.edgeVelocityClampBand = 30;
+const CONFIG = {
+  cpuCount: 99,
+  roundSeconds: 180,
+  peelDropInterval: 6,
+  peelDropJitter: 3,
+  initialPeelDelay: 4,
+  playerStunDuration: 3,
+  outerBoundaryRatio: 0.9,
+  springStrength: 0.08,
+  springDamping: 0.12,
+  separationStrength: 0.15,
+  edgeRepulsionStrength: 0.75,
+};
+
+function recalculateConfig() {
+  const scale = logicalCanvasSize / BASE_CANVAS_SIZE;
+  CONFIG.stageRadius = logicalCanvasSize * 0.42;
+  CONFIG.safeRadius = CONFIG.stageRadius * 0.32;
+  CONFIG.playerSpeed = DIMENSIONAL_VALUES.playerSpeed * scale;
+  CONFIG.cpuSpeed = DIMENSIONAL_VALUES.cpuSpeed * scale;
+  CONFIG.playerRadius = DIMENSIONAL_VALUES.playerRadius * scale;
+  CONFIG.cpuRadius = DIMENSIONAL_VALUES.cpuRadius * scale;
+  CONFIG.peelRadius = DIMENSIONAL_VALUES.peelRadius * scale;
+  CONFIG.dangerTriggerDistance =
+    CONFIG.safeRadius + DIMENSIONAL_VALUES.dangerTriggerOffset * scale;
+  CONFIG.springRestDistance =
+    CONFIG.safeRadius + DIMENSIONAL_VALUES.springRestOffset * scale;
+  CONFIG.separationPadding = Math.max(2, DIMENSIONAL_VALUES.separationPadding * scale);
+  CONFIG.edgeRepulsionMargin = DIMENSIONAL_VALUES.edgeRepulsionMargin * scale;
+  CONFIG.edgeVelocityClampBand = DIMENSIONAL_VALUES.edgeVelocityClampBand * scale;
+}
+
+recalculateConfig();
+
+function resizeCanvas({ resetGameOnChange = true } = {}) {
+  const viewportMin = Math.min(window.innerWidth, window.innerHeight);
+  const padding = Math.max(24, Math.min(64, viewportMin * 0.08));
+  const targetSize = viewportMin - padding;
+  const clampedSize = Math.max(320, Math.min(900, targetSize));
+  const dpr = window.devicePixelRatio || 1;
+  const sizeChanged = Math.abs(clampedSize - logicalCanvasSize) >= 1;
+
+  logicalCanvasSize = clampedSize;
+  canvas.style.width = `${logicalCanvasSize}px`;
+  canvas.style.height = `${logicalCanvasSize}px`;
+
+  const pixelSize = Math.round(logicalCanvasSize * dpr);
+  if (canvas.width !== pixelSize || canvas.height !== pixelSize) {
+    canvas.width = pixelSize;
+    canvas.height = pixelSize;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  } else if (sizeChanged) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (sizeChanged) {
+    recalculateConfig();
+    if (resetGameOnChange) {
+      resetGame();
+    }
+  }
+}
 
 const BIOMES = [
   { name: '빙결 평원', ground: '#bfdbfe', rim: '#1d4ed8', actor: '#0f172a' },
   { name: '자수정 산림', ground: '#c4b5fd', rim: '#6d28d9', actor: '#0f0a1a' },
   { name: '황혼 사막', ground: '#fbbf24', rim: '#c2410c', actor: '#0f172a' },
   { name: '심해 분지', ground: '#38bdf8', rim: '#0ea5e9', actor: '#082f49' },
-  { name: '청록 초원', ground: '#5eead4', rim: '#0f766e', actor: '#022c22' },
 ];
 
 const PLAYER_PAIN_MESSAGES = ['으악!', '꽥!', '아야!', '미끄러졌어!', '헉!'];
@@ -60,6 +111,7 @@ let peels = [];
 let peelDropCountdown = CONFIG.initialPeelDelay;
 let playerStunTimer = 0;
 let playerBubble = null;
+let touchTarget = null;
 
 function randomBiome() {
   return BIOMES[Math.floor(Math.random() * BIOMES.length)];
@@ -90,7 +142,7 @@ function normalize(vx, vy) {
 }
 
 function resetGame() {
-  const center = canvas.width / 2;
+  const center = logicalCanvasSize / 2;
   biome = randomBiome();
   player = { x: center, y: center, radius: CONFIG.playerRadius };
   enemies = [];
@@ -98,6 +150,7 @@ function resetGame() {
   peelDropCountdown = CONFIG.initialPeelDelay + Math.random() * CONFIG.peelDropJitter;
   playerStunTimer = 0;
   playerBubble = null;
+  touchTarget = null;
   const maxIdleRadius = CONFIG.stageRadius * CONFIG.outerBoundaryRatio - CONFIG.cpuRadius - 12;
   for (let i = 0; i < CONFIG.cpuCount; i += 1) {
     const isCloseBand = Math.random() < 0.55;
@@ -169,11 +222,58 @@ function handleKeyup(e) {
 document.addEventListener('keydown', handleKeydown);
 document.addEventListener('keyup', handleKeyup);
 restartButton.addEventListener('click', resetGame);
+window.addEventListener('resize', () => resizeCanvas());
+
+function getTouchPoint(touch) {
+  if (!touch) return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = ((touch.clientX - rect.left) / rect.width) * logicalCanvasSize;
+  const y = ((touch.clientY - rect.top) / rect.height) * logicalCanvasSize;
+  return {
+    x: Math.max(0, Math.min(logicalCanvasSize, x)),
+    y: Math.max(0, Math.min(logicalCanvasSize, y)),
+  };
+}
+
+function handleTouchStart(e) {
+  if (e.touches.length === 0) return;
+  e.preventDefault();
+  const point = getTouchPoint(e.touches[0]);
+  if (point) {
+    touchTarget = point;
+  }
+}
+
+function handleTouchMove(e) {
+  if (e.touches.length === 0) return;
+  e.preventDefault();
+  const point = getTouchPoint(e.touches[0]);
+  if (point) {
+    touchTarget = point;
+  }
+}
+
+function handleTouchEnd(e) {
+  e.preventDefault();
+  if (e.touches.length > 0) {
+    const point = getTouchPoint(e.touches[0]);
+    if (point) {
+      touchTarget = point;
+    }
+  } else {
+    touchTarget = null;
+  }
+}
+
+canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
 function update(dt) {
   if (gameOver) return;
   const dt60 = dt * 60; // keep speed values close to design numbers
-  const center = canvas.width / 2;
+  const center = logicalCanvasSize / 2;
 
   if (playerStunTimer > 0) {
     playerStunTimer -= dt;
@@ -205,13 +305,29 @@ function update(dt) {
   if (pressed.has('ArrowLeft')) inputX -= 1;
   if (pressed.has('ArrowRight')) inputX += 1;
 
-  const dir = playerStunTimer > 0 ? { x: 0, y: 0 } : normalize(inputX, inputY);
+  let dirX = 0;
+  let dirY = 0;
+
   if (playerStunTimer > 0) {
     playerVelocity.x = 0;
     playerVelocity.y = 0;
   } else {
-    playerVelocity.x = dir.x * CONFIG.playerSpeed;
-    playerVelocity.y = dir.y * CONFIG.playerSpeed;
+    if (inputX !== 0 || inputY !== 0) {
+      const dir = normalize(inputX, inputY);
+      dirX = dir.x;
+      dirY = dir.y;
+    } else if (touchTarget) {
+      const toTargetX = touchTarget.x - player.x;
+      const toTargetY = touchTarget.y - player.y;
+      const distToTarget = length(toTargetX, toTargetY);
+      if (distToTarget > CONFIG.playerRadius * 0.6) {
+        dirX = toTargetX / distToTarget;
+        dirY = toTargetY / distToTarget;
+      }
+    }
+
+    playerVelocity.x = dirX * CONFIG.playerSpeed;
+    playerVelocity.y = dirY * CONFIG.playerSpeed;
   }
   player.x += playerVelocity.x * dt60;
   player.y += playerVelocity.y * dt60;
@@ -406,25 +522,33 @@ function update(dt) {
 function endGame(isClear) {
   if (gameOver) return;
   gameOver = true;
+  touchTarget = null;
   gameOverPanel.classList.remove('hidden');
+  const elapsedSeconds = Math.min(
+    Math.max(CONFIG.roundSeconds - timeLeft, 0),
+    CONFIG.roundSeconds
+  );
+  const totalSeconds = Math.round(elapsedSeconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  const formattedElapsed = `${minutes}:${seconds}`;
+
   if (isClear && score >= CONFIG.cpuCount) {
     gameOverTitle.textContent = '모든 CPU를 잡았습니다!';
-    gameOverDetail.textContent = `남은 시간: ${Math.ceil(timeLeft)}초`;
   } else if (isClear) {
-    gameOverTitle.textContent = '시간 종료';
-    gameOverDetail.textContent = `잡은 CPU: ${score}`;
+    gameOverTitle.textContent = '시간 종료!!';
   } else {
-    gameOverTitle.textContent = '스테이지 밖으로 떨어졌습니다';
-    gameOverDetail.textContent = `잡은 CPU: ${score}`;
+    gameOverTitle.textContent = '밖으로 떨어졌습니다..';
   }
+  gameOverDetail.innerHTML = `경과 시간: ${formattedElapsed}<br>잡은 CPU: ${score} / ${CONFIG.cpuCount}`;
 }
 
 function drawStage() {
-  const center = canvas.width / 2;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const center = logicalCanvasSize / 2;
+  ctx.clearRect(0, 0, logicalCanvasSize, logicalCanvasSize);
 
   ctx.fillStyle = '#0f172a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, logicalCanvasSize, logicalCanvasSize);
 
   const gradient = ctx.createRadialGradient(
     center,
@@ -461,10 +585,24 @@ function drawPeels() {
 }
 
 function drawPlayer() {
-  ctx.fillStyle = '#fde047';
+  ctx.fillStyle = '#6bddb7ff';
   ctx.beginPath();
   ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawTouchIndicator() {
+  if (!touchTarget || gameOver) return;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+  ctx.lineWidth = Math.max(1.5, CONFIG.playerRadius * 0.18);
+  const dashLength = Math.max(4, CONFIG.playerRadius * 0.6);
+  ctx.setLineDash([dashLength, dashLength]);
+  ctx.beginPath();
+  ctx.arc(touchTarget.x, touchTarget.y, CONFIG.playerRadius * 1.8, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawPlayerBubble() {
@@ -476,27 +614,19 @@ function drawPlayerBubble() {
   const height = 26;
   ctx.font = '18px Arial';
   const metrics = ctx.measureText(text);
-  const width = metrics.width + padding * 2;
+  const width = metrics.width + padding * 2.5;
   const bubbleX = player.x - width / 2;
   const bubbleY = player.y - player.radius - height - 16;
 
-  ctx.fillStyle = 'rgba(248, 113, 113, 0.9)';
-  ctx.strokeStyle = '#fee2e2';
-  ctx.lineWidth = 2;
+  ctx.fillStyle = 'rgba(169, 14, 14, 0.9)';
+  ctx.strokeStyle = 'rgba(169, 14, 14, 0.9)';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.rect(bubbleX, bubbleY, width, height);
   ctx.fill();
   ctx.stroke();
 
-  ctx.beginPath();
-  ctx.moveTo(player.x - 10, player.y - player.radius - 16);
-  ctx.lineTo(player.x + 10, player.y - player.radius - 16);
-  ctx.lineTo(player.x, player.y - player.radius - 4);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#0f172a';
+  ctx.fillStyle = '#ffffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, player.x, bubbleY + height / 2);
@@ -510,7 +640,6 @@ function drawEnemies() {
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
     ctx.fill();
-    drawSpeechBubble(enemy);
   }
 }
 
@@ -523,23 +652,15 @@ function drawSpeechBubble(enemy) {
   const height = 24;
   ctx.font = '16px Arial';
   const metrics = ctx.measureText(text);
-  const width = metrics.width + padding * 2;
+  const width = metrics.width + padding * 2.5;
   const bubbleX = enemy.x - width / 2;
   const bubbleY = enemy.y - enemy.radius - height - 12;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
   ctx.strokeStyle = '#f8fafc';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.rect(bubbleX, bubbleY, width, height);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(enemy.x - 8, enemy.y - enemy.radius - 12);
-  ctx.lineTo(enemy.x + 8, enemy.y - enemy.radius - 12);
-  ctx.lineTo(enemy.x, enemy.y - enemy.radius - 2);
-  ctx.closePath();
+  ctx.roundRect(bubbleX, bubbleY, width, height, enemy.radius / 2)
   ctx.fill();
   ctx.stroke();
 
@@ -548,6 +669,13 @@ function drawSpeechBubble(enemy) {
   ctx.textBaseline = 'middle';
   ctx.fillText(text, enemy.x, bubbleY + height / 2);
   ctx.restore();
+}
+
+function drawEnemyBubbles() {
+  for (const enemy of enemies) {
+    if (!enemy.alive) continue;
+    drawSpeechBubble(enemy);
+  }
 }
 
 function loop(timestamp) {
@@ -562,10 +690,21 @@ function loop(timestamp) {
   drawPeels();
   drawEnemies();
   drawPlayer();
+  drawEnemyBubbles();
+  drawTouchIndicator();
   drawPlayerBubble();
 
   requestAnimationFrame(loop);
 }
 
+resizeCanvas({ resetGameOnChange: false });
 resetGame();
 requestAnimationFrame(loop);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('./service-worker.js')
+      .catch((error) => console.error('Service worker registration failed:', error));
+  });
+}

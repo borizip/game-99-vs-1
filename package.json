@@ -1,9 +1,9 @@
 {
-  "name": "game-99-vs-1",
+  "name": "@borizip/99vs1",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "http-server . -p 3000"
+    "dev": "http-server . -p 3000"
   },
   "devDependencies": {
     "http-server": "^14.1.1"

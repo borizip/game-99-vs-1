@@ -3,15 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>99인 술래잡기</title>
+  <title>99 vs 1</title>
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
   <div id="hud">
     <div id="timer">180</div>
     <div id="score">0 / 99</div>
   </div>
-  <canvas id="game" width="900" height="900"></canvas>
+  <div id="game-container">
+    <canvas id="game" width="900" height="900"></canvas>
+  </div>
   <div id="game-over" class="hidden">
     <h1 id="game-over-title"></h1>
     <p id="game-over-detail"></p>
