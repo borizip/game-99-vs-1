@@ -222,21 +222,11 @@ function handleKeyup(e) {
   pressed.delete(keyMap[e.key]);
 }
 
-function getTouchPoint(touch) {
-  if (!touch) return null;
-  return {
-    x: (touch.clientX * 2 - canvasWidth / dpr) / transformScale,
-    y: (touch.clientY * 2 - canvasHeight / dpr) / transformScale,
-  };
-}
-
+let touchStart;
 function handleTouchStart(e) {
   if (e.touches.length === 0) return;
   e.preventDefault();
-  const point = getTouchPoint(e.touches[0]);
-  if (point) {
-    touchTarget = point;
-  }
+  touchStart = [e.touches[0].clientX, e.touches[0].clientY];
 }
 
 function handleTouchMove(e) {
@@ -257,7 +247,13 @@ function handleTouchEnd(e) {
     }
   } else {
     touchTarget = null;
+    touchStart = null;
   }
+}
+
+function getTouchPoint(touch) {
+  if (!touch || !touchStart) return null;
+  return [touch.clientX - touchStart[0], touch.clientY - touchStart[1]];
 }
 
 function update(dt) {
@@ -294,6 +290,10 @@ function update(dt) {
   if (pressed.has("down")) inputY += 1;
   if (pressed.has("left")) inputX -= 1;
   if (pressed.has("right")) inputX += 1;
+  if (touchTarget) {
+    inputX += touchTarget[0];
+    inputY += touchTarget[1];
+  }
 
   let dirX = 0;
   let dirY = 0;
@@ -306,16 +306,7 @@ function update(dt) {
       const dir = normalize(inputX, inputY);
       dirX = dir.x;
       dirY = dir.y;
-    } else if (touchTarget) {
-      const toTargetX = touchTarget.x - player.x;
-      const toTargetY = touchTarget.y - player.y;
-      const distToTarget = len(toTargetX, toTargetY);
-      if (distToTarget > CONFIG.playerRadius * 0.6) {
-        dirX = toTargetX / distToTarget;
-        dirY = toTargetY / distToTarget;
-      }
     }
-
     playerVelocity.x = dirX * CONFIG.playerSpeed;
     playerVelocity.y = dirY * CONFIG.playerSpeed;
   }
